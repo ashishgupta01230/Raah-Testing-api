@@ -1,0 +1,519 @@
+{
+  "info": {
+    "name": "Admin Dashboard APIs",
+    "description": "Covers all Admin Dashboard APIs from docs/Franchise/API_Requirements_Admin_Dashboard.md:\n\n- Part A: Dashboard Components (A.1–A.7)\n- Part B: Approval Queue APIs (B.1–B.7)\n- Part C: Commission Run APIs (C.1–C.4)\n- Part D: Report APIs (D.1–D.7)\n\nAll routes use the /api prefix (Program.cs RoutePrefixConvention). Admin-only endpoints require [AdminOnly] attribute — a franchisee token will be rejected.\n\nRun order: log in first (Auth folder) -> then any admin endpoint, using the adminToken from login.\n\nRESPONSE ENVELOPE (verified against ResponseFilterAttribute + ResponseModel): the real payload is ALWAYS nested under `.data`.\n\nGET/DELETE: { data, errorCode (0=ok, 1=error), errorDescription, message: {message, messageType}|null, isFeedbackSet }\nPOST/PUT adds: modelValidation: { isValid, errors }\n\nAuthorization = Bearer adminToken.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:5299/api" },
+    { "key": "adminUserName", "value": "", "description": "LoginID of an admin user" },
+    { "key": "adminPassword", "value": "" },
+    { "key": "adminToken", "value": "" },
+    { "key": "testYear", "value": "2026", "description": "Year for month-scoped API tests" },
+    { "key": "testMonth", "value": "9", "description": "Month for month-scoped API tests (1-12)" }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login - Admin",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth",
+            "body": { "mode": "raw", "raw": "{\n  \"UserName\": \"{{adminUserName}}\",\n  \"Password\": \"{{adminPassword}}\"\n}" },
+            "description": "Response.data.accessToken -> adminToken. The token carries UserId/RoleId claims. The [AdminOnly] attribute checks the role claim — a franchisee token is rejected with 403."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.data && jsonData.data.accessToken) {",
+                  "    pm.collectionVariables.set('adminToken', jsonData.data.accessToken);",
+                  "    console.log('adminToken saved');",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "A - Dashboard",
+      "description": "Part A — Dashboard Components (A.1–A.7). All endpoints return live data for the admin dashboard.",
+      "item": [
+        {
+          "name": "A.1 Get Action Required Counts",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }],
+            "url": "{{baseUrl}}/admin/dashboard/action-required",
+            "description": "Returns three live counts that need admin attention.\n\n.data shape (ActionRequiredCountsResponse):\n{\n  \"pendingBusinessEntries\": 5,\n  \"pendingFranchiseeApprovals\": 2,\n  \"pendingWithdrawalRequests\": 1\n}\n\nThese are LIVE counts — not month-scoped. A pending item from last month still needs action today. Returns zeros (not empty) when everything is cleared."
+          }
+        },
+        {
+          "name": "A.2 Get Monthly Summary Metrics",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/admin/dashboard/monthly-summary?year={{testYear}}&month={{testMonth}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "dashboard", "monthly-summary"],
+              "query": [
+                { "key": "year", "value": "{{testYear}}" },
+                { "key": "month", "value": "{{testMonth}}" }
+              ]
+            },
+            "description": "Returns four headline numbers for the selected month.\n\n.data shape (MonthlySummaryResponse):\n{\n  \"totalApprovedBusiness\": 5000000,\n  \"previousMonthBusiness\": 4200000,\n  \"businessPercentageChange\": 19.0,\n  \"totalCommissionPayout\": 150000,\n  \"payoutRatio\": 3.0,\n  \"isPayoutProvisional\": false,\n  \"totalFranchisees\": 120,\n  \"newFranchiseesThisMonth\": 8,\n  \"activeFranchiseesThisMonth\": 95,\n  \"activePercentage\": 79.2,\n  \"isCurrentMonth\": true\n}\n\nEdge cases:\n- Current incomplete month: isCurrentMonth=true, figures are month-to-date.\n- First month ever: businessPercentageChange=null (UI hides comparison).\n- Commission run not executed: isPayoutProvisional=true."
+          }
+        },
+        {
+          "name": "A.3 Get Business vs Payout Trend",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }],
+            "url": "{{baseUrl}}/admin/dashboard/business-payout-trend",
+            "description": "Returns last 6 months of business and payout totals for the trend chart.\n\n.data shape (BusinessPayoutTrendResponse):\n{\n  \"months\": [\n    { \"year\": 2026, \"month\": 4, \"totalBusiness\": 3200000, \"totalPayout\": 96000, \"isPayoutZero\": false },\n    ...\n    { \"year\": 2026, \"month\": 9, \"totalBusiness\": 5000000, \"totalPayout\": 150000, \"isPayoutZero\": false }\n  ]\n}\n\nEdge cases:\n- Fewer than 6 months of history: returns only available months.\n- Month with no commission run: totalPayout=0, isPayoutZero=true (chart distinguishes from 'not yet calculated')."
+          }
+        },
+        {
+          "name": "A.4 Get Level Distribution",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/admin/dashboard/level-distribution?year={{testYear}}&month={{testMonth}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "dashboard", "level-distribution"],
+              "query": [
+                { "key": "year", "value": "{{testYear}}" },
+                { "key": "month", "value": "{{testMonth}}" }
+              ]
+            },
+            "description": "Returns count of franchisees at each performance level.\n\n.data shape (LevelDistributionResponse):\n{\n  \"totalFranchisees\": 120,\n  \"belowLevel1\": 15,\n  \"level1\": 40,\n  \"level2\": 30,\n  \"level3\": 20,\n  \"level4\": 10,\n  \"level5\": 5,\n  \"isProvisional\": false\n}\n\nEdge cases:\n- Franchisees below Level 1 threshold: counted in belowLevel1 (reconciles against total).\n- Current incomplete month: isProvisional=true (levels change as entries are approved)."
+          }
+        },
+        {
+          "name": "A.5 Get Top Performers",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/admin/dashboard/top-performers?year={{testYear}}&month={{testMonth}}&top=3",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "dashboard", "top-performers"],
+              "query": [
+                { "key": "year", "value": "{{testYear}}" },
+                { "key": "month", "value": "{{testMonth}}" },
+                { "key": "top", "value": "3" }
+              ]
+            },
+            "description": "Returns highest-contributing franchisees sorted by team business.\n\n.data shape (TopPerformersResponse):\n{\n  \"performers\": [\n    {\n      \"rank\": 1,\n      \"regNo\": 1001,\n      \"name\": \"Rajesh Kumar\",\n      \"level\": 3,\n      \"location\": \"Delhi\",\n      \"directReferralCount\": 12,\n      \"teamBusiness\": 2500000\n    },\n    ...\n  ]\n}\n\nEdge cases:\n- Ties: secondary sort by referral count, then join date.\n- Fewer than 3 active franchisees: returns whatever is available."
+          }
+        },
+        {
+          "name": "A.6 Get Month-End Status",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/admin/dashboard/month-end-status?year={{testYear}}&month={{testMonth}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "dashboard", "month-end-status"],
+              "query": [
+                { "key": "year", "value": "{{testYear}}" },
+                { "key": "month", "value": "{{testMonth}}" }
+              ]
+            },
+            "description": "Returns readiness state for the monthly commission run.\n\n.data shape (MonthEndStatusResponse):\n{\n  \"totalSubmittedEntries\": 150,\n  \"approvedEntries\": 140,\n  \"pendingEntries\": 10,\n  \"commissionRunStatus\": \"Approved\",\n  \"commissionRunDate\": \"2026-09-01T02:15:00\",\n  \"isOverdue\": false,\n  \"hasPostRunDiscrepancy\": false,\n  \"daysRemainingInMonth\": 26\n}\n\nEdge cases:\n- Commission run completed but new entries approved after: hasPostRunDiscrepancy=true.\n- Month ended but no run executed: isOverdue=true, commissionRunStatus=\"NotRun\"."
+          }
+        },
+        {
+          "name": "A.7 Get Recent Activity Feed",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/admin/dashboard/recent-activity?count=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "dashboard", "recent-activity"],
+              "query": [
+                { "key": "count", "value": "20" }
+              ]
+            },
+            "description": "Returns most recent system events in reverse chronological order.\n\n.data shape (RecentActivityResponse):\n{\n  \"activities\": [\n    {\n      \"eventType\": \"BusinessEntryApproved\",\n      \"description\": \"Business entry #42 approved — Rs.250,000.00 for 15 Aug 2026\",\n      \"relatedEntityId\": 42,\n      \"entityType\": \"BusinessEntry\",\n      \"occurredOn\": \"2026-08-15T14:30:00\",\n      \"performedBy\": \"Admin User\"\n    },\n    ...\n  ]\n}\n\nEdge cases:\n- No activity yet: returns empty activities array.\n- Bulk actions: grouped as single event."
+          }
+        }
+      ]
+    },
+    {
+      "name": "B - Approval Queue",
+      "description": "Part B — Approval Queue APIs (B.1–B.7). Admin reviews and approves/rejects pending items.",
+      "item": [
+        {
+          "name": "B.1 List Pending Business Entries",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/admin/approval-queue/business-entries?search=&fromDate=&toDate=",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "approval-queue", "business-entries"],
+              "query": [
+                { "key": "search", "value": "", "description": "Optional: filter by franchisee name or LoginID" },
+                { "key": "fromDate", "value": "", "description": "Optional: filter from date (ISO 8601)" },
+                { "key": "toDate", "value": "", "description": "Optional: filter to date (ISO 8601)" }
+              ]
+            },
+            "description": "Returns all business entries awaiting admin approval.\n\n.data shape: ARRAY of PendingBusinessEntryItem:\n[\n  {\n    \"id\": 42,\n    \"regNo\": 1001,\n    \"franchiseeName\": \"Rajesh Kumar\",\n    \"entryDate\": \"2026-08-31\",\n    \"amount\": 250000,\n    \"submittedOn\": \"2026-08-31T23:45:00\"\n  },\n  ...\n]\n\nSortable and filterable by franchisee name/LoginID or date range."
+          }
+        },
+        {
+          "name": "B.2 Approve Business Entry",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" }
+            ],
+            "url": "{{baseUrl}}/admin/approval-queue/business-entries/42/approve",
+            "description": "Approves a single pending business entry. The amount becomes eligible for that month's team business.\n\nIMPORTANT: Approval is BLOCKED if the commission run for that month is already completed — response will carry errorCode=1 with the reason.\n\nResponse.data: { \"message\": \"Business entry approved successfully.\" }"
+          }
+        },
+        {
+          "name": "B.2 Reject Business Entry",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" }
+            ],
+            "url": "{{baseUrl}}/admin/approval-queue/business-entries/42/reject",
+            "body": { "mode": "raw", "raw": "{\n  \"Reason\": \"Amount does not match diagnostic test records\"\n}" },
+            "description": "Rejects a business entry with a reason. The reason is recorded and shown to the franchisee.\n\nResponse.data: { \"message\": \"Business entry rejected successfully.\" }"
+          }
+        },
+        {
+          "name": "B.3 Bulk Approve Business Entries",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" }
+            ],
+            "url": "{{baseUrl}}/admin/approval-queue/business-entries/bulk-approve",
+            "body": { "mode": "raw", "raw": "{\n  \"entryIds\": [42, 43, 44, 45]\n}" },
+            "description": "Approves multiple pending entries at once. Returns per-entry results — some may succeed and others fail.\n\n.data shape (BulkApproveEntriesResponse):\n{\n  \"totalRequested\": 4,\n  \"approvedCount\": 3,\n  \"failedCount\": 1,\n  \"results\": [\n    { \"entryId\": 42, \"success\": true, \"errorMessage\": null },\n    { \"entryId\": 43, \"success\": true, \"errorMessage\": null },\n    { \"entryId\": 44, \"success\": true, \"errorMessage\": null },\n    { \"entryId\": 45, \"success\": false, \"errorMessage\": \"Cannot approve entry for July 2026 — commission run already completed.\" }\n  ]\n}\n\nEdge cases:\n- Some entries fail validation: API reports per-entry results, does NOT fail the whole batch."
+          }
+        },
+        {
+          "name": "B.4 List Pending Franchisee Approvals",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }],
+            "url": "{{baseUrl}}/admin/approval-queue/franchisees",
+            "description": "Returns all franchisee registrations awaiting admin activation.\n\n.data shape: ARRAY of PendingFranchiseeItem:\n[\n  {\n    \"id\": 15,\n    \"name\": \"Amit Singh\",\n    \"contactNumber\": \"9876543210\",\n    \"location\": \"Mumbai\",\n    \"referrerRegNo\": 1001,\n    \"referrerName\": \"Rajesh Kumar\",\n    \"paymentConfirmed\": true,\n    \"submittedOn\": \"2026-08-20T10:00:00\"\n  },\n  ...\n]"
+          }
+        },
+        {
+          "name": "B.5 Approve Franchisee Registration",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" }
+            ],
+            "url": "{{baseUrl}}/admin/approval-queue/franchisees/15/approve",
+            "description": "Activates a pending franchisee. On approval:\n- Franchisee becomes Active (ConfPayNo = 1)\n- If referrer exists AND is active AND hasn't received referral income yet: Rs.1,000 Direct Referral Income is credited to referrer's wallet.\n- If referrer is inactive or already paid: income is NOT credited (audit log records why).\n\nEdge cases:\n- Referrer deactivated since referral: approval proceeds but no income credited.\n- Duplicate phone/email detected: blocked with clear reason.\n\nResponse.data: { \"message\": \"Franchisee approved successfully.\" }"
+          }
+        },
+        {
+          "name": "B.5 Reject Franchisee Registration",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" }
+            ],
+            "url": "{{baseUrl}}/admin/approval-queue/franchisees/15/reject",
+            "body": { "mode": "raw", "raw": "{\n  \"Reason\": \"Incomplete documentation\"\n}" },
+            "description": "Rejects a franchisee registration with a reason. No income is generated.\n\nResponse.data: { \"message\": \"Franchisee rejected successfully.\" }"
+          }
+        },
+        {
+          "name": "B.6 List Pending Withdrawal Requests",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }],
+            "url": "{{baseUrl}}/admin/approval-queue/withdrawals",
+            "description": "Returns all withdrawal requests awaiting admin action.\n\n.data shape: ARRAY of PendingWithdrawalItem:\n[\n  {\n    \"id\": 8,\n    \"regNo\": 1001,\n    \"franchiseeName\": \"Rajesh Kumar\",\n    \"requestedAmount\": 50000,\n    \"walletBalance\": 120000,\n    \"requestedOn\": \"2026-08-25T16:30:00\"\n  },\n  ...\n]"
+          }
+        },
+        {
+          "name": "B.7 Approve Withdrawal Request",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" }
+            ],
+            "url": "{{baseUrl}}/admin/approval-queue/withdrawals/8/approve",
+            "description": "Approves a withdrawal request and debits the wallet.\n\nIMPORTANT: The API checks current wallet balance at approval time — if balance dropped below the requested amount since the request was submitted, approval is BLOCKED with errorCode=1.\n\nThe API is IDEMPOTENT: approving the same request twice is blocked (status check).\n\nResponse.data: { \"message\": \"Withdrawal approved and wallet debited.\" }"
+          }
+        },
+        {
+          "name": "B.7 Reject Withdrawal Request",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" }
+            ],
+            "url": "{{baseUrl}}/admin/approval-queue/withdrawals/8/reject",
+            "body": { "mode": "raw", "raw": "{\n  \"Reason\": \"Insufficient documentation for bank transfer\"\n}" },
+            "description": "Rejects a withdrawal request. Wallet is untouched.\n\nResponse.data: { \"message\": \"Withdrawal rejected.\" }"
+          }
+        }
+      ]
+    },
+    {
+      "name": "C - Commission Run",
+      "description": "Part C — Commission Run APIs (C.1–C.4). Preview, execute, and review monthly commission calculations.",
+      "item": [
+        {
+          "name": "C.1 Preview Commission Run",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" }
+            ],
+            "url": "{{baseUrl}}/admin/commission/preview",
+            "body": { "mode": "raw", "raw": "{\n  \"year\": {{testYear}},\n  \"month\": {{testMonth}}\n}" },
+            "description": "Shows what would happen before executing the run. Nothing is written to wallets.\n\n.data shape (CommissionRunPreviewResponse):\n{\n  \"totalBusiness\": 5000000,\n  \"calculatedTotalPayout\": 150000,\n  \"franchiseeCount\": 95,\n  \"pendingEntriesCount\": 10,\n  \"warnings\": [\n    \"10 business entries are still pending approval. Running now will exclude them from the calculation.\"\n  ],\n  \"alreadyRun\": false,\n  \"existingRunId\": null\n}\n\nEdge cases:\n- Pending entries still exist: warning prominently displayed.\n- Run already completed for this month: alreadyRun=true, existingRunId set."
+          }
+        },
+        {
+          "name": "C.2 Execute Commission Run",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" }
+            ],
+            "url": "{{baseUrl}}/admin/commission/execute",
+            "body": { "mode": "raw", "raw": "{\n  \"year\": {{testYear}},\n  \"month\": {{testMonth}},\n  \"confirmRerun\": false\n}" },
+            "description": "Calculates and stores commission for all active franchisees. Credits NOTHING — admin must approve the run separately.\n\n.data shape (ExecuteCommissionRunResponse):\n{\n  \"runId\": 12,\n  \"totalBusiness\": 5000000,\n  \"totalCommission\": 150000,\n  \"franchiseeCount\": 95,\n  \"status\": \"PendingApproval\"\n}\n\nIMPORTANT RULES:\n- Idempotent: second run for same month requires confirmRerun=true.\n- Franchisee with higher-level referral: that referral contributes zero (negative-diff floor).\n- Franchisee with no business and no referrals: included with zero commission.\n- Failure partway: rolls back completely.\n\nAfter execution, use C.3 History to view or POST approve on the run."
+          }
+        },
+        {
+          "name": "C.3 Get Commission Run History",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/admin/commission/history?page=1&pageSize=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "commission", "history"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "20" }
+              ]
+            },
+            "description": "Returns the log of past commission runs.\n\n.data shape: ARRAY of CommissionRunHistoryItem:\n[\n  {\n    \"id\": 12,\n    \"year\": 2026,\n    \"month\": 8,\n    \"status\": \"Approved\",\n    \"totalBusiness\": 4200000,\n    \"totalCommission\": 126000,\n    \"franchiseeCount\": 88,\n    \"calculatedOn\": \"2026-09-01T02:00:00\",\n    \"approvedOn\": \"2026-09-01T10:30:00\",\n    \"approvedBy\": \"Admin User\"\n  },\n  ...\n]"
+          }
+        },
+        {
+          "name": "C.4 Get Commission Breakdown (per franchisee)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/admin/commission/breakdown?runId=12&regNo=1001",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "commission", "breakdown"],
+              "query": [
+                { "key": "runId", "value": "12", "description": "CommissionRun ID" },
+                { "key": "regNo", "value": "1001", "description": "Franchisee RegNo" }
+              ]
+            },
+            "description": "Returns the detailed calculation behind one franchisee's commission.\n\n.data shape (CommissionBreakdownResponse):\n{\n  \"regNo\": 1001,\n  \"franchiseeName\": \"Rajesh Kumar\",\n  \"year\": 2026,\n  \"month\": 8,\n  \"level\": 3,\n  \"levelPercentage\": 3.0,\n  \"selfBusiness\": 500000,\n  \"teamBusiness\": 1500000,\n  \"ownBusinessCommission\": 15000,\n  \"differentialCommission\": 30000,\n  \"totalCommission\": 45000,\n  \"referralContributions\": [\n    {\n      \"referralRegNo\": 1005,\n      \"referralName\": \"Amit Singh\",\n      \"referralSelfBusiness\": 200000,\n      \"referralLevelPercentage\": 2.0,\n      \"sponsorLevelPercentage\": 3.0,\n      \"differentialAmount\": 2000,\n      \"zeroReason\": null\n    },\n    {\n      \"referralRegNo\": 1008,\n      \"referralName\": \"Priya Sharma\",\n      \"referralSelfBusiness\": 300000,\n      \"referralLevelPercentage\": 3.0,\n      \"sponsorLevelPercentage\": 3.0,\n      \"differentialAmount\": 0,\n      \"zeroReason\": \"Referral level percentage meets or exceeds sponsor level — negative difference floored at zero\"\n    }\n  ]\n}\n\nEdge cases:\n- Referral contributed zero due to negative-diff rule: still listed with zeroReason, not omitted.\n- This is the ONLY endpoint accessible to franchisees (for their own data only)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "D - Reports",
+      "description": "Part D — Report APIs (D.1–D.7). Every report accepts a date range, supports pagination. Reports include only approved entries. Export to Excel/PDF is a UI concern — these endpoints return the data.",
+      "item": [
+        {
+          "name": "D.1 Monthly Business Report",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/admin/reports/business?fromDate=2026-08-01&toDate=2026-08-31&page=1&pageSize=50&location=&level=&regNo=",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "reports", "business"],
+              "query": [
+                { "key": "fromDate", "value": "2026-08-01" },
+                { "key": "toDate", "value": "2026-08-31" },
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "50" },
+                { "key": "location", "value": "", "description": "Optional: filter by city/location" },
+                { "key": "level", "value": "", "description": "Optional: filter by performance level" },
+                { "key": "regNo", "value": "", "description": "Optional: filter by specific franchisee" }
+              ]
+            },
+            "description": "Franchisee-wise approved business for a selected date range.\n\n.data shape (PagedReportResponse<BusinessReportItem>):\n{\n  \"items\": [\n    {\n      \"regNo\": 1001,\n      \"franchiseeName\": \"Rajesh Kumar\",\n      \"location\": \"Delhi\",\n      \"level\": 3,\n      \"totalBusiness\": 2500000,\n      \"entryCount\": 30\n    },\n    ...\n  ],\n  \"totalRecords\": 120,\n  \"page\": 1,\n  \"pageSize\": 50,\n  \"totalPages\": 3\n}\n\nSortable by amount. Filterable by location and level."
+          }
+        },
+        {
+          "name": "D.2 Commission Payout Report",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/admin/reports/commission-payout?fromDate=2026-08-01&toDate=2026-08-31&page=1&pageSize=50&regNo=",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "reports", "commission-payout"],
+              "query": [
+                { "key": "fromDate", "value": "2026-08-01" },
+                { "key": "toDate", "value": "2026-08-31" },
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "50" },
+                { "key": "regNo", "value": "", "description": "Optional: filter by specific franchisee" }
+              ]
+            },
+            "description": "Franchisee-wise commission for a period with full differential breakdown.\n\n.data shape (PagedReportResponse<CommissionPayoutReportItem>):\n{\n  \"items\": [\n    {\n      \"regNo\": 1001,\n      \"franchiseeName\": \"Rajesh Kumar\",\n      \"year\": 2026,\n      \"month\": 8,\n      \"selfBusiness\": 500000,\n      \"teamBusiness\": 1500000,\n      \"level\": 3,\n      \"ownBusinessCommission\": 15000,\n      \"differentialCommission\": 30000,\n      \"totalCommission\": 45000,\n      \"creditStatus\": 2\n    },\n    ...\n  ],\n  \"totalRecords\": 95,\n  \"page\": 1,\n  \"pageSize\": 50,\n  \"totalPages\": 2\n}"
+          }
+        },
+        {
+          "name": "D.3 Referral Report",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/admin/reports/referrals?fromDate=2026-08-01&toDate=2026-08-31&page=1&pageSize=50&referrerRegNo=",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "reports", "referrals"],
+              "query": [
+                { "key": "fromDate", "value": "2026-08-01" },
+                { "key": "toDate", "value": "2026-08-31" },
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "50" },
+                { "key": "referrerRegNo", "value": "", "description": "Optional: filter by specific referrer" }
+              ]
+            },
+            "description": "Who referred whom, activation dates, and referral income paid.\n\n.data shape (PagedReportResponse<ReferralReportItem>):\n{\n  \"items\": [\n    {\n      \"referrerRegNo\": 1001,\n      \"referrerName\": \"Rajesh Kumar\",\n      \"referredRegNo\": 1005,\n      \"referredName\": \"Amit Singh\",\n      \"activationDate\": \"2026-08-20T12:00:00\",\n      \"referralIncomePaid\": 1000,\n      \"status\": \"Approved\"\n    },\n    ...\n  ],\n  \"totalRecords\": 25,\n  \"page\": 1,\n  \"pageSize\": 50,\n  \"totalPages\": 1\n}"
+          }
+        },
+        {
+          "name": "D.4 Level-wise Performance Report",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/admin/reports/level-performance?year={{testYear}}&month={{testMonth}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "reports", "level-performance"],
+              "query": [
+                { "key": "year", "value": "{{testYear}}" },
+                { "key": "month", "value": "{{testMonth}}" }
+              ]
+            },
+            "description": "Franchisee count and total business per level, with list of franchisees at each level.\n\n.data shape (LevelPerformanceReportResponse):\n{\n  \"levels\": [\n    {\n      \"level\": 0,\n      \"franchiseeCount\": 15,\n      \"totalBusiness\": 500000,\n      \"franchisees\": [\n        { \"regNo\": 1020, \"name\": \"Suresh Patel\", \"teamBusiness\": 50000 }\n      ]\n    },\n    {\n      \"level\": 1,\n      \"franchiseeCount\": 40,\n      \"totalBusiness\": 8000000,\n      \"franchisees\": [...]\n    },\n    ...\n  ],\n  \"totalFranchisees\": 120,\n  \"grandTotalBusiness\": 42000000\n}"
+          }
+        },
+        {
+          "name": "D.5 Wallet Report (Balances)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/admin/reports/wallet?page=1&pageSize=50&regNo=&fromDate=2026-08-01&toDate=2026-08-31",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "reports", "wallet"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "50" },
+                { "key": "regNo", "value": "", "description": "Optional: filter by specific franchisee" },
+                { "key": "fromDate", "value": "2026-08-01" },
+                { "key": "toDate", "value": "2026-08-31" }
+              ]
+            },
+            "description": "Current wallet balances across all franchisees.\n\n.data shape (PagedReportResponse<WalletReportItem>):\n{\n  \"items\": [\n    {\n      \"regNo\": 1001,\n      \"franchiseeName\": \"Rajesh Kumar\",\n      \"currentBalance\": 120000,\n      \"totalCredit\": 180000,\n      \"totalDebit\": 60000\n    },\n    ...\n  ],\n  \"totalRecords\": 95,\n  \"page\": 1,\n  \"pageSize\": 50,\n  \"totalPages\": 2\n}"
+          }
+        },
+        {
+          "name": "D.5 Wallet Report (Transactions)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/admin/reports/wallet/transactions?page=1&pageSize=50&regNo=&fromDate=2026-08-01&toDate=2026-08-31",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "reports", "wallet", "transactions"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "50" },
+                { "key": "regNo", "value": "", "description": "Optional: filter by specific franchisee" },
+                { "key": "fromDate", "value": "2026-08-01" },
+                { "key": "toDate", "value": "2026-08-31" }
+              ]
+            },
+            "description": "Credit and debit history for a selected period.\n\n.data shape (PagedReportResponse<WalletTransactionItem>):\n{\n  \"items\": [\n    {\n      \"regNo\": 1001,\n      \"franchiseeName\": \"Rajesh Kumar\",\n      \"transactionType\": \"Commission\",\n      \"credit\": 45000,\n      \"debit\": 0,\n      \"remark\": \"August 2026 commission\",\n      \"transactionDate\": \"2026-09-01T10:30:00\"\n    },\n    ...\n  ],\n  \"totalRecords\": 250,\n  \"page\": 1,\n  \"pageSize\": 50,\n  \"totalPages\": 5\n}"
+          }
+        },
+        {
+          "name": "D.6 Withdrawal Report",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/admin/reports/withdrawals?fromDate=2026-08-01&toDate=2026-08-31&page=1&pageSize=50&regNo=&status=",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "reports", "withdrawals"],
+              "query": [
+                { "key": "fromDate", "value": "2026-08-01" },
+                { "key": "toDate", "value": "2026-08-31" },
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "50" },
+                { "key": "regNo", "value": "", "description": "Optional: filter by specific franchisee" },
+                { "key": "status", "value": "", "description": "Optional: filter by status (Pending/Approved/Rejected/Processing/Completed)" }
+              ]
+            },
+            "description": "All withdrawal requests for a period with status, amounts, and approver.\n\n.data shape (PagedReportResponse<WithdrawalReportItem>):\n{\n  \"items\": [\n    {\n      \"id\": 8,\n      \"regNo\": 1001,\n      \"franchiseeName\": \"Rajesh Kumar\",\n      \"requestedAmount\": 50000,\n      \"status\": \"Completed\",\n      \"requestedOn\": \"2026-08-25T16:30:00\",\n      \"processedOn\": \"2026-08-26T11:00:00\",\n      \"processedBy\": \"1\",\n      \"rejectionReason\": null\n    },\n    ...\n  ],\n  \"totalRecords\": 15,\n  \"page\": 1,\n  \"pageSize\": 50,\n  \"totalPages\": 1\n}"
+          }
+        },
+        {
+          "name": "D.7 Activity / Audit Log",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/admin/reports/audit-log?fromDate=2026-08-01&toDate=2026-08-31&page=1&pageSize=50&eventType=&regNo=",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "reports", "audit-log"],
+              "query": [
+                { "key": "fromDate", "value": "2026-08-01" },
+                { "key": "toDate", "value": "2026-08-31" },
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "50" },
+                { "key": "eventType", "value": "", "description": "Optional: filter by event type (BusinessEntryApproved, WithdrawalRejected, etc.)" },
+                { "key": "regNo", "value": "", "description": "Optional: filter by related entity" }
+              ]
+            },
+            "description": "Complete chronological record of all system events. Required for compliance and dispute resolution.\n\n.data shape (PagedReportResponse<AuditLogReportItem>):\n{\n  \"items\": [\n    {\n      \"id\": 201,\n      \"eventType\": \"BusinessEntryApproved\",\n      \"description\": \"Business entry #42 approved — Rs.250,000.00 for 15 Aug 2026\",\n      \"relatedEntityId\": 42,\n      \"entityType\": \"BusinessEntry\",\n      \"performedBy\": 1,\n      \"performedByName\": \"Admin User\",\n      \"occurredOn\": \"2026-08-15T14:30:00\"\n    },\n    ...\n  ],\n  \"totalRecords\": 500,\n  \"page\": 1,\n  \"pageSize\": 50,\n  \"totalPages\": 10\n}\n\nFilterable by event type, franchisee (via relatedEntityId), and date range."
+          }
+        }
+      ]
+    }
+  ]
+}

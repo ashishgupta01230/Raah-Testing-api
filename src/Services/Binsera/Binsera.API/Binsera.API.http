@@ -1,0 +1,64 @@
+@Binsera.API_HostAddress = http://localhost:5250
+
+###Get sponsor
+GET {{Binsera.API_HostAddress}}/registration-validation/sponser?sponsonrId=BIT000008
+Accept: application/json
+
+###Get address by pin code
+GET {{Binsera.API_HostAddress}}/locations/addresses?pinCode=110001
+Accept: application/json
+
+###Register New Memebr
+POST {{Binsera.API_HostAddress}}/members/registration
+Content-Type: application/json
+{
+  "IntroRegNo": 5,
+  "PersonInfo": {
+    "Title": "Mr",
+    "FirstName": "Kon",
+    "LastName": "Doe",
+    "DateOfBirth": "2000-05-15T00:00:00",
+    "Gender": 1,
+    "PrimaryContactNumber": "9876543210",
+    "SecondaryContactNumber": "9123456789",
+    "AadhaarNo": "1234-5678-9012",
+    "PanCard": "ABCDE1234F",
+    "EmailId": "john.doe@example.com"
+  },
+  "AdditionalInfo": {
+    "CourseIds": [1, 3, 5],
+    "WhyThisCourse": "To improve my skills",
+    "CurrentInstitute": "ABC Institute",
+    "AppliedFor": "Advanced Course",
+    "RefrenceSources": "Friend"
+  },
+  "Address": {
+    "HouseNo": "123",
+    "Street": "Main Street",
+    "City": "Delhi",
+    "State": "Delhi",
+    "ZipCode": "110001"
+  },
+  "IntroSide": "L"
+}
+###Get address by pin code
+POST {{Binsera.API_HostAddress}}/enquiries
+Content-Type: application/json
+{
+  "name": "John Doe",
+  "email": "john.doe@example.com",
+  "phone": "1234567890",
+  "city": "Mumbai",
+  "state": "Maharashtra",
+  "zipCode": "400001",
+  "enquiryType": "Student"
+}
+
+###Login User
+POST {{Binsera.API_HostAddress}}/login
+Content-Type: application/json
+{
+"UserName":"admin",
+"Password":"haut@12345"
+}
+
